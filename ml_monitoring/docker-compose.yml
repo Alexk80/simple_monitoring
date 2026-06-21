@@ -1,0 +1,84 @@
+version: "3.9"
+
+services:
+  rabbitmq:
+    image: rabbitmq:3.13-management
+    hostname: rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: monitor
+      RABBITMQ_DEFAULT_PASS: monitor
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  features:
+    build:
+      context: .
+      dockerfile: features/Dockerfile
+    environment:
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: "5672"
+      RABBITMQ_USER: monitor
+      RABBITMQ_PASSWORD: monitor
+      QUEUE_FEATURES: features
+      QUEUE_Y_TRUE: y_true
+      STREAM_DELAY_SECONDS: "10"
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    restart: unless-stopped
+
+  model:
+    build:
+      context: .
+      dockerfile: model/Dockerfile
+    environment:
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: "5672"
+      RABBITMQ_USER: monitor
+      RABBITMQ_PASSWORD: monitor
+      QUEUE_FEATURES: features
+      QUEUE_Y_PRED: y_pred
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    restart: unless-stopped
+
+  metric:
+    build:
+      context: .
+      dockerfile: metric/Dockerfile
+    environment:
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: "5672"
+      RABBITMQ_USER: monitor
+      RABBITMQ_PASSWORD: monitor
+      QUEUE_Y_TRUE: y_true
+      QUEUE_Y_PRED: y_pred
+      METRIC_LOG_PATH: /app/logs/metric_log.csv
+    volumes:
+      - ./logs:/app/logs
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    restart: unless-stopped
+
+  plot:
+    build:
+      context: .
+      dockerfile: plot/Dockerfile
+    environment:
+      METRIC_LOG_PATH: /app/logs/metric_log.csv
+      ERROR_PLOT_PATH: /app/logs/error_distribution.png
+      PLOT_UPDATE_SECONDS: "5"
+    volumes:
+      - ./logs:/app/logs
+    depends_on:
+      - metric
+    restart: unless-stopped
